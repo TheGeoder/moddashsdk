@@ -1,44 +1,98 @@
-name: Build ModDash Android v1
+
+name: Build ModDash Android APK
 
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
 
 jobs:
-  build:
+  build-apk:
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout ModDash Repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
-    - name: Set up Java Development Kit (JDK)
-      uses: actions/setup-java@v4
+    - name: Set up JDK 17
+      uses: actions/setup-java@v5
       with:
-        distribution: 'zulu'
+        distribution: 'temurin'
         java-version: '17'
 
-    - name: Install Android NDK and CMake
-      uses: android-actions/setup-android@v3
-      with:
-        ndk-version: '25.2.9519653'
-        cmake-version: '3.22.1'
+    - name: Setup Android SDK & Build Tools
+      uses: android-actions/setup-android@v4
 
-    - name: Run CMake Configuration and Compilation
+    # 🤖 THIS STEP CREATES THE APK WRAPPER AUTOMATICALLY IN THE CLOUD
+    - name: Generate Flat Android Project Structure
       run: |
-        mkdir build
-        cd build
-        cmake .. \
-          -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake \
-          -DANDROID_ABI=arm64-v8a \
-          -DANDROID_PLATFORM=android-30 \
-          -DANDROID_STL=c++_shared
-        make
+        mkdir -p app/src/main/cpp
+        mkdir -p app/src/main/res/values
+        
+        # Copy all your flat repo files into the temporary build folder
+        cp *.cpp app/src/main/cpp/
+        cp *.h app/src/main/cpp/
+        cp CMakeLists.txt app/src/main/cpp/
+        cp moddashlogo.png app/src/main/cpp/
 
-    - name: Upload ModDash Android Binary Artifact
-      uses: actions/upload-artifact@v4
+        # Create a basic Android Manifest
+        cat << 'EOF' > app/src/main/AndroidManifest.xml
+        <manifest xmlns:android="http://android.com" package="com.moddash.launcher">
+            <application android:label="ModDash" android:hasCode="false" android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+                <activity android:name="android.app.NativeActivity" android:exported="true">
+                    <meta-data android:name="android.app.lib_name" android:value="ModDashAndroid" />
+                    <intent-filter>
+                        <action android:name="android.intent.action.MAIN" />
+                        <category android:name="android.intent.category.LAUNCHER" />
+                    </intent-filter>
+                </activity>
+            </application>
+        </manifest>
+        EOF
+
+        # Create basic app names/strings
+        cat << 'EOF' > app/src/main/res/values/strings.xml
+        <resources><string name="app_name">ModDash</string></resources>
+        EOF
+
+        # Create the Gradle build instructions
+        cat << 'EOF' > app/build.gradle
+        plugins { id 'com.android.application' }
+        android {
+            namespace 'com.moddash.launcher'
+            compileSdk 34
+            defaultConfig {
+                applicationId "com.moddash.launcher"
+                minSdk 26
+                targetSdk 34
+                versionCode 1
+                versionName "1.0"
+                ndk { abiFilters 'arm64-v8a' }
+                externalNativeBuild { cmake { cppFlags "-std=c++17" } }
+            }
+            externalNativeBuild { cmake { path "src/main/cpp/CMakeLists.txt" } }
+        }
+        EOF
+
+        # Create master project settings
+        echo "include ':app'" > settings.gradle
+        
+        # Create standard wrapper properties
+        cat << 'EOF' > build.gradle
+        buildscript {
+            repositories { google(); mavenCentral() }
+            dependencies { bootstrap; classpath 'com.android.tools.build:gradle:8.2.2' }
+        }
+        allprojects { repositories { google(); mavenCentral() } }
+        EOF
+
+    - name: Gradle Wrapper Init
+      run: gradle wrapper --gradle-version 8.5
+
+    - name: Compile and Build APK Package
+      run: ./gradlew assembleDebug
+
+    - name: Upload Finished Installable APK
+      uses: actions/upload-artifact@v5
       with:
-        name: libModDashAndroid-arm64
-        path: build/libModDashAndroid.so
+        name: ModDash-v1-Installer
+        path: app/build/outputs/apk/debug/ModDash.apk
