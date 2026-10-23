@@ -80,7 +80,7 @@ jobs:
         cat << 'EOF' > build.gradle
         buildscript {
             repositories { google(); mavenCentral() }
-            dependencies { bootstrap; classpath 'com.android.tools.build:gradle:8.2.2' }
+            dependencies { classpath 'com.android.tools.build:gradle:8.2.2' }
         }
         allprojects { repositories { google(); mavenCentral() } }
         EOF
